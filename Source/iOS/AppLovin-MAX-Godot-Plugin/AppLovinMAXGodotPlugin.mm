@@ -5,6 +5,8 @@
 //  Created by Chris Cong on 9/15/23.
 //
 
+#include <AppLovinSDK/AppLovinSDK-Swift.h>
+
 #import "AppLovinMAXGodotPlugin.h"
 #import "AppLovinMAXGodotSignal.h"
 #import "NSArray+AppLovinMAXGodotPlugin.h"
@@ -15,6 +17,8 @@
 #include "core/config/engine.h"
 
 #pragma mark - AppLovinMAXGodotPlugin Fields
+
+#define VERSION @"1.0.3"
 
 AppLovinMAXGodotPlugin *_plugin_instance;
 AppLovinMAXGodotManager *AppLovinMAXGodotPlugin::_appLovinMAX;
@@ -195,7 +199,7 @@ void AppLovinMAXGodotPlugin::_bind_methods()
                           PropertyInfo(Variant::DICTIONARY, "reward_info"),
                           PropertyInfo(Variant::DICTIONARY, "ad_info")));
     
-    ClassDB::bind_method(D_METHOD("initialize"), &AppLovinMAXGodotPlugin::initialize, DEFVAL(""), DEFVAL(Dictionary()), DEFVAL(Array()));
+    ClassDB::bind_method(D_METHOD("initialize"), &AppLovinMAXGodotPlugin::initialize, DEFVAL(""), DEFVAL(Dictionary()), DEFVAL(Array()), DEFVAL(""), DEFVAL(""));
     ClassDB::bind_method(D_METHOD("is_initialized"), &AppLovinMAXGodotPlugin::is_initialized);
     
     ClassDB::bind_method(D_METHOD("show_mediation_debugger"), &AppLovinMAXGodotPlugin::show_mediation_debugger);
@@ -307,77 +311,53 @@ void AppLovinMAXGodotPlugin::_bind_methods()
 
 #pragma mark - SDK Initialization
 
-void AppLovinMAXGodotPlugin::initialize(String sdk_key, Dictionary metadata, Array ad_unit_identifiers)
+void AppLovinMAXGodotPlugin::initialize(String sdk_key, Dictionary metadata, Array ad_unit_identifiers, String privacy_policy_url, String terms_of_service_url)
 {
-    NSString *sdkKey = NSSTRING(sdk_key);
-    if ( [sdkKey al_isValidString] )
-    {
-        NSDictionary *infoDict = NSBundle.mainBundle.infoDictionary;
-        [infoDict setValue: sdkKey forKey: @"AppLovinSdkKey"];
+    // Create the initialization configuration
+    ALSdkInitializationConfiguration *initConfig = [ALSdkInitializationConfiguration configurationWithSdkKey: NSSTRING(sdk_key) builderBlock:^(ALSdkInitializationConfigurationBuilder *builder) {
+        
+        builder.pluginVersion = [@"Godot-" stringByAppendingString: VERSION];
+        builder.mediationProvider = ALMediationProviderMAX;
+        
+        builder.adUnitIdentifiers = NSARRAY(ad_unit_identifiers);
+        
+        builder.exceptionHandlerEnabled = _exceptionHandlerEnabledToSet;
+        
+        if (_testDeviceIdentifiersToSet) {
+            builder.testDeviceAdvertisingIdentifiers = _testDeviceIdentifiersToSet;
+        }
+        
+        if (_exceptionHandlerEnabledToSet) {
+            builder.exceptionHandlerEnabled = _exceptionHandlerEnabledToSet.boolValue;
+        }
+    }];
+
+    // Configure the SDK settings if needed before or after SDK initialization.
+    ALSdkSettings *settings = [ALSdk shared].settings;
+    settings.userIdentifier = _userIdentifierToSet;
+
+    settings.termsAndPrivacyPolicyFlowSettings.enabled = YES;
+    settings.termsAndPrivacyPolicyFlowSettings.termsOfServiceURL = [NSURL URLWithString: NSSTRING(terms_of_service_url)];
+    settings.termsAndPrivacyPolicyFlowSettings.privacyPolicyURL = [NSURL URLWithString: NSSTRING(privacy_policy_url)];
+    
+    if (_verboseLoggingToSet) {
+        settings.verboseLoggingEnabled = _verboseLoggingToSet.boolValue;
     }
     
-    _sdk = [_appLovinMAX initializeSdkWithSettings: generateSDKSettings(ad_unit_identifiers, metadata)
-                            andCompletionHandler:^(ALSdkConfiguration *configuration) {
+    if (_creativeDebuggerEnabledToSet) {
+        settings.creativeDebuggerEnabled = _creativeDebuggerEnabledToSet.boolValue;
+    }
+    
+    // Initialize the SDK with the configuration
+    [[ALSdk shared] initializeWithConfiguration: initConfig completionHandler:^(ALSdkConfiguration *sdkConfig) {
         _isSdkInitialized = true;
         
         emit_signal(AppLovinMAXSignalSdkInitialization, get_sdk_configuration());
     }];
     
-    if ( _userIdentifierToSet )
-    {
-        _sdk.userIdentifier = _userIdentifierToSet;
-        _userIdentifierToSet = nil;
-    }
+    _sdk = [ALSdk shared];
     
-    if ( _userSegmentNameToSet )
-    {
-        _sdk.userSegment.name = _userSegmentNameToSet;
-        _userSegmentNameToSet = nil;
-    }
-    
-    if ( _targetingYearOfBirth )
-    {
-        _sdk.targetingData.yearOfBirth = _targetingYearOfBirth.intValue <= 0 ? nil : _targetingYearOfBirth;
-        _targetingYearOfBirth = nil;
-    }
-    
-    if ( _targetingGender )
-    {
-        _sdk.targetingData.gender = getAppLovinGender(_targetingGender);
-        _targetingGender = nil;
-    }
-
-    if ( _targetingMaximumAdContentRating )
-    {
-        _sdk.targetingData.maximumAdContentRating = getAppLovinAdContentRating(_targetingMaximumAdContentRating.intValue);
-        _targetingMaximumAdContentRating = nil;
-    }
-    
-    if ( _targetingEmail )
-    {
-        _sdk.targetingData.email = _targetingEmail;
-        _targetingEmail = nil;
-    }
-    
-    if ( _targetingPhoneNumber )
-    {
-        _sdk.targetingData.phoneNumber = _targetingPhoneNumber;
-        _targetingPhoneNumber = nil;
-    }
-    
-    if ( _targetingKeywords )
-    {
-        _sdk.targetingData.keywords = _targetingKeywords;
-        _targetingKeywords = nil;
-    }
-    
-    if ( _targetingInterests )
-    {
-        _sdk.targetingData.interests = _targetingInterests;
-        _targetingInterests = nil;
-    }
-    
-    setPendingExtraParametersIfNeeded( _sdk.settings );
+    NSLog(@"initialization complete (applovin)!");
 }
 
 bool AppLovinMAXGodotPlugin::is_initialized()
@@ -409,14 +389,7 @@ void AppLovinMAXGodotPlugin::show_creative_debugger()
 
 void AppLovinMAXGodotPlugin::set_user_id(String user_id)
 {
-    if ( _sdk )
-    {
-        _sdk.userIdentifier = NSSTRING(user_id);
-    }
-    else
-    {
-        _userIdentifierToSet = NSSTRING(user_id);
-    }
+    _userIdentifierToSet = NSSTRING(user_id);
 }
 
 Dictionary AppLovinMAXGodotPlugin::get_sdk_configuration()
@@ -773,94 +746,102 @@ void AppLovinMAXGodotPlugin::track_event(String name, Dictionary parameters)
 
 void AppLovinMAXGodotPlugin::set_user_segment_field(String field, String value)
 {
-    if ( _sdk )
-    {
-        _sdk.userSegment.name = NSSTRING(value);
-    }
-    else
-    {
-        _userSegmentNameToSet = NSSTRING(value);
-    }
+    // deprecated
+//    if ( _sdk )
+//    {
+//        _sdk.userSegment.name = NSSTRING(value);
+//    }
+//    else
+//    {
+//        _userSegmentNameToSet = NSSTRING(value);
+//    }
 }
     
 #pragma mark - Targeting Data
 
 void AppLovinMAXGodotPlugin::set_targeting_data_year_of_birth(int year_of_birth)
 {
-    if ( !_sdk )
-    {
-        _targetingYearOfBirth = @(year_of_birth);
-        return;
-    }
-    
-    _sdk.targetingData.yearOfBirth = year_of_birth <= 0 ? nil : @(year_of_birth);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingYearOfBirth = @(year_of_birth);
+//        return;
+//    }
+//    
+//    _sdk.targetingData.yearOfBirth = year_of_birth <= 0 ? nil : @(year_of_birth);
 }
     
 void AppLovinMAXGodotPlugin::set_targeting_data_gender(String gender)
 {
-    if ( !_sdk )
-    {
-        _targetingGender = NSSTRING(gender);
-        return;
-    }
-    
-    NSString *genderString = NSSTRING(gender);
-    _sdk.targetingData.gender = getAppLovinGender(genderString);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingGender = NSSTRING(gender);
+//        return;
+//    }
+//    
+//    NSString *genderString = NSSTRING(gender);
+//    _sdk.targetingData.gender = getAppLovinGender(genderString);
 }
     
 void AppLovinMAXGodotPlugin::set_targeting_data_maximum_ad_content_rating(int maximum_ad_content_rating)
 {
-    if ( !_sdk )
-    {
-        _targetingMaximumAdContentRating = @(maximum_ad_content_rating);
-        return;
-    }
-    
-    _sdk.targetingData.maximumAdContentRating = getAppLovinAdContentRating(maximum_ad_content_rating);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingMaximumAdContentRating = @(maximum_ad_content_rating);
+//        return;
+//    }
+//    
+//    _sdk.targetingData.maximumAdContentRating = getAppLovinAdContentRating(maximum_ad_content_rating);
 }
     
 void AppLovinMAXGodotPlugin::set_targeting_data_email(String email)
 {
-    if ( !_sdk )
-    {
-        _targetingEmail = NSSTRING(email);
-        return;
-    }
-    
-    _sdk.targetingData.email = NSSTRING(email);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingEmail = NSSTRING(email);
+//        return;
+//    }
+//    
+//    _sdk.targetingData.email = NSSTRING(email);
 }
     
 void AppLovinMAXGodotPlugin::set_targeting_data_phone_number(String phone_number)
 {
-    if ( !_sdk )
-    {
-        _targetingPhoneNumber = NSSTRING(phone_number);
-        return;
-    }
-    
-    _sdk.targetingData.phoneNumber = NSSTRING(phone_number);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingPhoneNumber = NSSTRING(phone_number);
+//        return;
+//    }
+//    
+//    _sdk.targetingData.phoneNumber = NSSTRING(phone_number);
 }
     
 void AppLovinMAXGodotPlugin::set_targeting_data_keywords(Array keywords)
 {
-    if ( !_sdk )
-    {
-        _targetingKeywords = NSARRAY(keywords);
-        return;
-    }
-    
-    _sdk.targetingData.keywords = NSARRAY(keywords);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingKeywords = NSARRAY(keywords);
+//        return;
+//    }
+//    
+//    _sdk.targetingData.keywords = NSARRAY(keywords);
 }
     
 void AppLovinMAXGodotPlugin::set_targeting_data_interests(Array interests)
 {
-    if ( !_sdk )
-    {
-        _targetingInterests = NSARRAY(interests);
-        return;
-    }
-    
-    _sdk.targetingData.interests = NSARRAY(interests);
+    // deprecated
+//    if ( !_sdk )
+//    {
+//        _targetingInterests = NSARRAY(interests);
+//        return;
+//    }
+//    
+//    _sdk.targetingData.interests = NSARRAY(interests);
 }
     
 void AppLovinMAXGodotPlugin::clear_all_targeting_data()
@@ -877,7 +858,8 @@ void AppLovinMAXGodotPlugin::clear_all_targeting_data()
         return;
     }
     
-    [_sdk.targetingData clearAll];
+    // deprecated
+//    [_sdk.targetingData clearAll];
 }
     
 #pragma mark - Settings
@@ -898,15 +880,7 @@ bool AppLovinMAXGodotPlugin::is_muted()
 
 void AppLovinMAXGodotPlugin::set_verbose_logging(bool enabled)
 {
-    if ( _sdk )
-    {
-        _sdk.settings.verboseLoggingEnabled = enabled;
-        _verboseLoggingToSet = nil;
-    }
-    else
-    {
-        _verboseLoggingToSet = @(enabled);
-    }
+    _verboseLoggingToSet = @(enabled);
 }
 
 bool AppLovinMAXGodotPlugin::is_verbose_logging_enabled()
@@ -925,15 +899,7 @@ bool AppLovinMAXGodotPlugin::is_verbose_logging_enabled()
 
 void AppLovinMAXGodotPlugin::set_creative_debugger_enabled(bool enabled)
 {
-    if ( _sdk )
-    {
-        _sdk.settings.creativeDebuggerEnabled = enabled;
-        _creativeDebuggerEnabledToSet = nil;
-    }
-    else
-    {
-        _creativeDebuggerEnabledToSet = @(enabled);
-    }
+    _creativeDebuggerEnabledToSet = @(enabled);
 }
 
 void AppLovinMAXGodotPlugin::set_test_device_advertising_identifiers(Array advertising_identifiers)
@@ -944,28 +910,12 @@ void AppLovinMAXGodotPlugin::set_test_device_advertising_identifiers(Array adver
 
 void AppLovinMAXGodotPlugin::set_exception_handler_enabled(bool enabled)
 {
-    if ( _sdk )
-    {
-        _sdk.settings.exceptionHandlerEnabled = enabled;
-        _exceptionHandlerEnabledToSet = nil;
-    }
-    else
-    {
-        _exceptionHandlerEnabledToSet = @(enabled);
-    }
+    _exceptionHandlerEnabledToSet = @(enabled);
 }
 
 void AppLovinMAXGodotPlugin::set_location_collection_enabled(bool enabled)
 {
-    if ( _sdk )
-    {
-        _sdk.settings.locationCollectionEnabled = enabled;
-        _locationCollectionEnabledToSet = nil;
-    }
-    else
-    {
-        _locationCollectionEnabledToSet = @(enabled);
-    }
+    _locationCollectionEnabledToSet = @(enabled);
 }
 
 void AppLovinMAXGodotPlugin::set_extra_parameter(String key, String value)
@@ -993,49 +943,49 @@ void AppLovinMAXGodotPlugin::set_extra_parameter(String key, String value)
 }
 
 #pragma mark - Utility/Private Methods
-
-ALSdkSettings *AppLovinMAXGodotPlugin::generateSDKSettings(Array ad_unit_identifiers, Dictionary metadata)
-{
-    ALSdkSettings *settings = [[ALSdkSettings alloc] init];
-    
-    if ( _testDeviceIdentifiersToSet )
-    {
-        settings.testDeviceAdvertisingIdentifiers = _testDeviceIdentifiersToSet;
-        _testDeviceIdentifiersToSet = nil;
-    }
-    
-    if ( _verboseLoggingToSet )
-    {
-        settings.verboseLoggingEnabled = _verboseLoggingToSet.boolValue;
-        _verboseLoggingToSet = nil;
-    }
-
-    if ( _creativeDebuggerEnabledToSet )
-    {
-        settings.creativeDebuggerEnabled = _creativeDebuggerEnabledToSet.boolValue;
-        _creativeDebuggerEnabledToSet = nil;
-    }
-
-    if ( _exceptionHandlerEnabledToSet )
-    {
-        settings.exceptionHandlerEnabled = _exceptionHandlerEnabledToSet.boolValue;
-        _exceptionHandlerEnabledToSet = nil;
-    }
-    
-    if ( _locationCollectionEnabledToSet )
-    {
-        settings.locationCollectionEnabled = _locationCollectionEnabledToSet.boolValue;
-        _locationCollectionEnabledToSet = nil;
-    }
-    
-    settings.initializationAdUnitIdentifiers = NSARRAY(ad_unit_identifiers);
-
-    // Set the meta data to settings.
-    NSMutableDictionary<NSString *, NSString *> *metaDataDict = [settings valueForKey: @"metaData"];
-    [metaDataDict addEntriesFromDictionary: NSDICTIONARY(metadata)];
-    
-    return settings;
-}
+//
+//ALSdkSettings *AppLovinMAXGodotPlugin::generateSDKSettings(Array ad_unit_identifiers, Dictionary metadata)
+//{
+//    ALSdkSettings *settings = [[ALSdkSettings alloc] init];
+//    
+//    if ( _testDeviceIdentifiersToSet )
+//    {
+//        settings.testDeviceAdvertisingIdentifiers = _testDeviceIdentifiersToSet;
+//        _testDeviceIdentifiersToSet = nil;
+//    }
+//    
+//    if ( _verboseLoggingToSet )
+//    {
+//        settings.verboseLoggingEnabled = _verboseLoggingToSet.boolValue;
+//        _verboseLoggingToSet = nil;
+//    }
+//
+//    if ( _creativeDebuggerEnabledToSet )
+//    {
+//        settings.creativeDebuggerEnabled = _creativeDebuggerEnabledToSet.boolValue;
+//        _creativeDebuggerEnabledToSet = nil;
+//    }
+//
+//    if ( _exceptionHandlerEnabledToSet )
+//    {
+//        settings.exceptionHandlerEnabled = _exceptionHandlerEnabledToSet.boolValue;
+//        _exceptionHandlerEnabledToSet = nil;
+//    }
+//    
+//    if ( _locationCollectionEnabledToSet )
+//    {
+//        settings.locationCollectionEnabled = _locationCollectionEnabledToSet.boolValue;
+//        _locationCollectionEnabledToSet = nil;
+//    }
+//    
+//    settings.initializationAdUnitIdentifiers = NSARRAY(ad_unit_identifiers);
+//
+//    // Set the meta data to settings.
+//    NSMutableDictionary<NSString *, NSString *> *metaDataDict = [settings valueForKey: @"metaData"];
+//    [metaDataDict addEntriesFromDictionary: NSDICTIONARY(metadata)];
+//    
+//    return settings;
+//}
 
 void AppLovinMAXGodotPlugin::setPendingExtraParametersIfNeeded(ALSdkSettings *settings)
 {
@@ -1054,38 +1004,38 @@ void AppLovinMAXGodotPlugin::setPendingExtraParametersIfNeeded(ALSdkSettings *se
     }
 }
 
-ALGender AppLovinMAXGodotPlugin::getAppLovinGender(NSString *gender_string)
-{
-    if ( [@"F" al_isEqualToStringIgnoringCase: gender_string] )
-    {
-        return ALGenderFemale;
-    }
-    else if ( [@"M" al_isEqualToStringIgnoringCase: gender_string] )
-    {
-        return ALGenderMale;
-    }
-    else if ( [@"O" al_isEqualToStringIgnoringCase: gender_string] )
-    {
-        return ALGenderOther;
-    }
-    
-    return ALGenderUnknown;
-}
-
-ALAdContentRating AppLovinMAXGodotPlugin::getAppLovinAdContentRating(int maximum_ad_content_rating)
-{
-    if ( maximum_ad_content_rating == 1 )
-    {
-        return ALAdContentRatingAllAudiences;
-    }
-    else if ( maximum_ad_content_rating == 2 )
-    {
-        return ALAdContentRatingEveryoneOverTwelve;
-    }
-    else if ( maximum_ad_content_rating == 3 )
-    {
-        return ALAdContentRatingMatureAudiences;
-    }
-    
-    return ALAdContentRatingNone;
-}
+//ALGender AppLovinMAXGodotPlugin::getAppLovinGender(NSString *gender_string)
+//{
+//    if ( [@"F" al_isEqualToStringIgnoringCase: gender_string] )
+//    {
+//        return ALGenderFemale;
+//    }
+//    else if ( [@"M" al_isEqualToStringIgnoringCase: gender_string] )
+//    {
+//        return ALGenderMale;
+//    }
+//    else if ( [@"O" al_isEqualToStringIgnoringCase: gender_string] )
+//    {
+//        return ALGenderOther;
+//    }
+//    
+//    return ALGenderUnknown;
+//}
+//
+//ALAdContentRating AppLovinMAXGodotPlugin::getAppLovinAdContentRating(int maximum_ad_content_rating)
+//{
+//    if ( maximum_ad_content_rating == 1 )
+//    {
+//        return ALAdContentRatingAllAudiences;
+//    }
+//    else if ( maximum_ad_content_rating == 2 )
+//    {
+//        return ALAdContentRatingEveryoneOverTwelve;
+//    }
+//    else if ( maximum_ad_content_rating == 3 )
+//    {
+//        return ALAdContentRatingMatureAudiences;
+//    }
+//    
+//    return ALAdContentRatingNone;
+//}

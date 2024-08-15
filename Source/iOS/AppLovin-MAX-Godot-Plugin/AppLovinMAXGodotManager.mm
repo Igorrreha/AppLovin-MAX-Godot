@@ -15,7 +15,6 @@
 
 #include "core/object/class_db.h"
 
-#define VERSION @"1.0.3"
 #define KEY_WINDOW [UIApplication sharedApplication].keyWindow
 #define DEVICE_SPECIFIC_ADVIEW_AD_FORMAT ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) ? MAAdFormat.leader : MAAdFormat.banner
 #define IS_VERTICAL_BANNER_POSITION(_POS) ( [@"center_left" isEqual: adViewPosition] || [@"center_right" isEqual: adViewPosition] )
@@ -37,9 +36,6 @@ NS_INLINE void max_godot_dispatch_on_main_thread(dispatch_block_t block)
 }
 
 @interface AppLovinMAXGodotManager()<MAAdDelegate, MAAdViewAdDelegate, MARewardedAdDelegate, MAAdRevenueDelegate>
-
-// Parent Fields
-@property (nonatomic, weak) ALSdk *sdk;
 
 // Fullscreen Ad Fields
 @property (nonatomic, strong) NSMutableDictionary<NSString *, MAInterstitialAd *> *interstitials;
@@ -150,32 +146,6 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
         }];
     }
     return self;
-}
-
-#pragma mark - Plugin Initialization
-
-- (ALSdk *)initializeSdkWithSettings:(ALSdkSettings *)settings andCompletionHandler:(ALSdkInitializationCompletionHandler)completionHandler
-{
-    NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
-    NSString *sdkKey = infoDict[@"AppLovinSdkKey"];
-    if ( [sdkKey al_isValidString] )
-    {
-        self.sdk = [ALSdk sharedWithKey: sdkKey settings: settings];
-    }
-    else
-    {
-        self.sdk = [ALSdk sharedWithSettings: settings];
-    }
-    
-    [self.sdk setPluginVersion: [@"Godot-" stringByAppendingString: VERSION]];
-    self.sdk.mediationProvider = @"max";
-    [self.sdk initializeSdkWithCompletionHandler:^(ALSdkConfiguration *configuration)
-     {
-        // Note: internal state should be updated first
-        completionHandler( configuration );
-    }];
-    
-    return self.sdk;
 }
 
 #pragma mark - Banners
@@ -437,7 +407,7 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
 
 - (void)trackEvent:(NSString *)event parameters:(NSDictionary<NSString *, id> *)parameters
 {
-    [self.sdk.eventService trackEvent: event parameters: parameters];
+    [[ALSdk shared].eventService trackEvent: event parameters: parameters];
 }
 
 #pragma mark - Ad Info
@@ -514,7 +484,7 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
     {
         Dictionary errorObject = Dictionary();
         errorObject["errorMessage"] = GODOT_STRING(error.message);
-        errorObject["adLoadFailure"] = GODOT_STRING(error.adLoadFailureInfo);
+        errorObject["adLoadFailure"] = GODOT_STRING(error.waterfall.description);
         errorObject["errorCode"] = (int) error.code;
         
         networkResponseDict["error"] = errorObject;
@@ -1306,7 +1276,7 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
     MAInterstitialAd *result = self.interstitials[adUnitIdentifier];
     if ( !result )
     {
-        result = [[MAInterstitialAd alloc] initWithAdUnitIdentifier: adUnitIdentifier sdk: self.sdk];
+        result = [[MAInterstitialAd alloc] initWithAdUnitIdentifier: adUnitIdentifier sdk: [ALSdk shared]];
         result.delegate = self;
         result.revenueDelegate = self;
         
@@ -1321,7 +1291,7 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
     MAAppOpenAd *result = self.appOpenAds[adUnitIdentifier];
     if ( !result )
     {
-        result = [[MAAppOpenAd alloc] initWithAdUnitIdentifier: adUnitIdentifier sdk: self.sdk];
+        result = [[MAAppOpenAd alloc] initWithAdUnitIdentifier: adUnitIdentifier sdk: [ALSdk shared]];
         result.delegate = self;
         result.revenueDelegate = self;
         
@@ -1336,7 +1306,7 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
     MARewardedAd *result = self.rewardedAds[adUnitIdentifier];
     if ( !result )
     {
-        result = [MARewardedAd sharedWithAdUnitIdentifier: adUnitIdentifier sdk: self.sdk];
+        result = [MARewardedAd sharedWithAdUnitIdentifier: adUnitIdentifier sdk: [ALSdk shared]];
         result.delegate = self;
         result.revenueDelegate = self;
         
@@ -1356,7 +1326,7 @@ static NSString *const DEFAULT_AD_VIEW_POSITION = @"top_left";
     MAAdView *result = self.adViews[adUnitIdentifier];
     if ( !result && adViewPosition )
     {
-        result = [[MAAdView alloc] initWithAdUnitIdentifier: adUnitIdentifier adFormat: adFormat sdk: self.sdk];
+        result = [[MAAdView alloc] initWithAdUnitIdentifier: adUnitIdentifier adFormat: adFormat sdk: [ALSdk shared]];
         result.userInteractionEnabled = NO;
         result.translatesAutoresizingMaskIntoConstraints = NO;
         result.delegate = self;

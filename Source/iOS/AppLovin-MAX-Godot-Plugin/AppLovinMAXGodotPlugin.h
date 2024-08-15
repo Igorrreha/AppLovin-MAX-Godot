@@ -5,7 +5,6 @@
 //  Created by Chris Cong on 9/15/23.
 //
 
-
 #import <Foundation/Foundation.h>
 
 #import "AppLovinMAXGodotManager.h"
@@ -46,8 +45,6 @@ class AppLovinMAXGodotPlugin : public Object
     
     ALSdkSettings *generateSDKSettings(Array ad_unit_identifiers, Dictionary metadata);
     void setPendingExtraParametersIfNeeded(ALSdkSettings *settings);
-    ALGender getAppLovinGender(NSString *gender_string);
-    ALAdContentRating getAppLovinAdContentRating(int maximum_ad_content_rating);
     
 public:
     AppLovinMAXGodotPlugin();
@@ -55,7 +52,7 @@ public:
     
     static AppLovinMAXGodotPlugin *get_instance();
     
-    void initialize(String sdk_key, Dictionary metadata, Array ad_unit_identifiers);
+    void initialize(String sdk_key, Dictionary metadata, Array ad_unit_identifiers, String privacy_policy_url, String terms_of_service_url);
     bool is_initialized();
     
     void show_mediation_debugger();
