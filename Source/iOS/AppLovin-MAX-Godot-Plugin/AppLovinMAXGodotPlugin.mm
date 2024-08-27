@@ -58,7 +58,7 @@ void applovin_max_godot_plugin_deinit()
     if ( _plugin_instance )
     {
        memdelete(_plugin_instance);
-   }
+    }   
 }
 
 AppLovinMAXGodotPlugin::AppLovinMAXGodotPlugin()

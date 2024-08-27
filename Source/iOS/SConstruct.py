@@ -132,8 +132,8 @@ else:
 env.Append(CPPPATH=[
     '.', 
     'AppLovin-MAX-Godot-Plugin/Categories',
-    '../../../../source_code/godot-4.2.2-stable', 
-    '../../../../source_code/godot-4.2.2-stable/platform/ios',
+    '../../../../source_code/godot-4.3', 
+    '../../../../source_code/godot-4.3/platform/ios',
     'Categories',
     'Pods',
     'Pods/Headers'
